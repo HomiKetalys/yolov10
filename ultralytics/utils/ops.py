@@ -852,6 +852,7 @@ def v10postprocess(preds, max_det, nc=80):
     assert(4 + nc == preds.shape[-1])
     boxes, scores = preds.split([4, nc], dim=-1)
     max_scores = scores.amax(dim=-1)
+    max_det=min(max_det,scores.shape[1])
     max_scores, index = torch.topk(max_scores, max_det, dim=-1)
     index = index.unsqueeze(-1)
     boxes = torch.gather(boxes, dim=1, index=index.repeat(1, 1, boxes.shape[-1]))

@@ -49,7 +49,12 @@ from .block import (
     PSA,
     C2fCIB,
     SCDown,
-    RepVGGDW
+    RepVGGDW,
+    SpAMt,
+    SCUp,
+    C2ft,
+    PSAt,
+    C2fCIBt,
 )
 from .conv import (
     CBAM,
@@ -65,8 +70,9 @@ from .conv import (
     LightConv,
     RepConv,
     SpatialAttention,
+    Add,
 )
-from .head import OBB, Classify, Detect, Pose, RTDETRDecoder, Segment, WorldDetect, v10Detect
+from .head import OBB, Classify, Detect, Pose, RTDETRDecoder, Segment, WorldDetect, v10Detect,v10DetectTiny
 from .transformer import (
     AIFI,
     MLP,
@@ -143,5 +149,6 @@ __all__ = (
     "C2fCIB",
     "SCDown",
     "RepVGGDW",
-    "v10Detect"
+    "v10Detect",
+    "Add",
 )

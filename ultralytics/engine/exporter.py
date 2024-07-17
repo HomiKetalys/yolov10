@@ -210,7 +210,15 @@ class Exporter:
             )
 
         # Input
-        im = torch.zeros(self.args.batch, 3, *self.imgsz).to(self.device)
+        if os.environ['YOLOV10_EXPORT'] == 'FRONT':
+            spc = int(os.environ['YOLOV10_SPC'])
+            im = torch.zeros(self.args.batch, 3, self.imgsz[0]//spc,self.imgsz[1]//spc).to(self.device)
+        elif os.environ['YOLOV10_EXPORT'] == 'POST':
+            sp=int(os.environ['YOLOV10_SP'])
+            im = torch.zeros(self.args.batch, 48, self.imgsz[0]//2**sp,self.imgsz[1]//2**sp).to(self.device)
+        else:
+            im = torch.zeros(self.args.batch, 3, *self.imgsz).to(self.device)
+
         file = Path(
             getattr(model, "pt_path", None) or getattr(model, "yaml_file", None) or model.yaml.get("yaml_file", "")
         )

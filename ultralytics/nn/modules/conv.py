@@ -21,6 +21,7 @@ __all__ = (
     "CBAM",
     "Concat",
     "RepConv",
+    "Add",
 )
 
 
@@ -36,7 +37,7 @@ def autopad(k, p=None, d=1):  # kernel, padding, dilation
 class Conv(nn.Module):
     """Standard convolution with args(ch_in, ch_out, kernel, stride, padding, groups, dilation, activation)."""
 
-    default_act = nn.SiLU()  # default activation
+    default_act = nn.ReLU6()  # default activation
 
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True):
         """Initialize Conv layer with given arguments including activation."""
@@ -90,8 +91,9 @@ class LightConv(nn.Module):
     def __init__(self, c1, c2, k=1, act=nn.ReLU()):
         """Initialize Conv layer with given arguments including activation."""
         super().__init__()
-        self.conv1 = Conv(c1, c2, 1, act=False)
-        self.conv2 = DWConv(c2, c2, k, act=act)
+        self.conv2 = DWConv(c1, c1, k, act=False)
+        self.conv1 = Conv(c1, c2, 1, act=act)
+
 
     def forward(self, x):
         """Apply 2 convolutions to input tensor."""
@@ -331,3 +333,15 @@ class Concat(nn.Module):
     def forward(self, x):
         """Forward pass for the YOLOv8 mask Proto module."""
         return torch.cat(x, self.d)
+
+class Add(nn.Module):
+    """Concatenate a list of tensors along dimension."""
+
+    def __init__(self,*args,**kwargs):
+        """Concatenates a list of tensors along a specified dimension."""
+        super().__init__()
+        # self.d = dimension
+
+    def forward(self, x):
+        """Forward pass for the YOLOv8 mask Proto module."""
+        return sum(x)

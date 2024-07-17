@@ -699,7 +699,8 @@ class LetterBox:
             labels = {}
         img = labels.get("img") if image is None else image
         shape = img.shape[:2]  # current shape [height, width]
-        new_shape = labels.pop("rect_shape", self.new_shape)
+        # new_shape = labels.pop("rect_shape", self.new_shape)
+        new_shape=self.new_shape
         if isinstance(new_shape, int):
             new_shape = (new_shape, new_shape)
 
@@ -997,9 +998,10 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
 
     return Compose(
         [
-            pre_transform,
-            MixUp(dataset, pre_transform=pre_transform, p=hyp.mixup),
-            Albumentations(p=1.0),
+            LetterBox(new_shape=(imgsz, imgsz)),
+            # pre_transform,
+            # MixUp(dataset, pre_transform=pre_transform, p=hyp.mixup),
+            # Albumentations(p=1.0),
             RandomHSV(hgain=hyp.hsv_h, sgain=hyp.hsv_s, vgain=hyp.hsv_v),
             RandomFlip(direction="vertical", p=hyp.flipud),
             RandomFlip(direction="horizontal", p=hyp.fliplr, flip_idx=flip_idx),

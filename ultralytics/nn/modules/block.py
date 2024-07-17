@@ -155,6 +155,31 @@ class SPP(nn.Module):
         return self.cv2(torch.cat([x] + [m(x) for m in self.m], 1))
 
 
+# class SPPF(nn.Module):
+#     """Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher."""
+#
+#     def __init__(self, c1, c2, k=5):
+#         """
+#         Initializes the SPPF layer with given input/output channels and kernel size.
+#
+#         This module is equivalent to SPP(k=(5, 9, 13)).
+#         """
+#         super().__init__()
+#         c_ = c1 // 2  # hidden channels
+#         # self.cv1 = Conv(c1, c_, 1, 1,act=False)
+#         self.cv2 = Conv(c_ * 4, c2, 1, 1,act=True)
+#         self.cv1=nn.Identity()
+#         # self.cv2=nn.Identity()
+#         self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+#
+#     def forward(self, x):
+#         """Forward pass through Ghost Convolution block."""
+#         x = self.cv1(x)
+#         y1 = self.m(x)
+#         y2 = self.m(y1)
+#         return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+#         # return x
+
 class SPPF(nn.Module):
     """Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher."""
 
@@ -165,17 +190,14 @@ class SPPF(nn.Module):
         This module is equivalent to SPP(k=(5, 9, 13)).
         """
         super().__init__()
-        c_ = c1 // 2  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c_ * 4, c2, 1, 1)
-        self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+        self.m1 = nn.MaxPool2d(kernel_size=3, stride=1, padding=3 // 2)
+        self.m2 = nn.MaxPool2d(kernel_size=5, stride=1, padding=5 // 2)
+        self.m3 = nn.MaxPool2d(kernel_size=7, stride=1, padding=7 // 2)
 
     def forward(self, x):
         """Forward pass through Ghost Convolution block."""
-        x = self.cv1(x)
-        y1 = self.m(x)
-        y2 = self.m(y1)
-        return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+        x = list(torch.chunk(x,4,dim=1))
+        return torch.cat((x[0],self.m1(x[1]),self.m2(x[2]),self.m3(x[3])), 1)
 
 
 class C1(nn.Module):
@@ -237,6 +259,83 @@ class C2f(nn.Module):
         y = list(self.cv1(x).split((self.c, self.c), 1))
         y.extend(m(y[-1]) for m in self.m)
         return self.cv2(torch.cat(y, 1))
+
+class C2ft(nn.Module):
+    """Faster Implementation of CSP Bottleneck with 2 convolutions."""
+
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        """Initialize CSP bottleneck layer with two convolutions with arguments ch_in, ch_out, number, shortcut, groups,
+        expansion.
+        """
+        super().__init__()
+        self.cv2 = Conv(c1, c2, 1)  # optional act=FReLU(c2)
+        self.c = c2
+        self.m = nn.ModuleList(
+            Bottleneckt(c1 // 2 ** (1 + _), c1 // 2 ** (1 + _), shortcut, c1 // 2 ** (1 + _), k=((3, 3), (1, 1)), e=1.0)
+            for _ in range(n))
+
+    def forward(self, x):
+        """Forward pass through C2f layer."""
+        # y = list(self.cv1(x).chunk(2, 1))
+        y = []
+        for m in self.m:
+            y_ = list(x.chunk(2, 1))
+            y.append(y_[0])
+            x = m(y_[1])
+        y.append(x)
+        return self.cv2(torch.cat(y, 1))
+
+    def forward_split(self, x):
+        """Forward pass using split() instead of chunk()."""
+        y = []
+        for id, m in enumerate(self.m):
+            y_ = list(x.split((self.c // 2 ** (1 + id), self.c // 2 ** (1 + id)), 1))
+            y.append(y_[0])
+            x = m(y_[1])
+        y.append(x)
+        return self.cv2(torch.cat(y, 1))
+
+# class C2ft0(nn.Module):
+#     """Faster Implementation of CSP Bottleneck with 2 convolutions."""
+#
+#     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+#         """Initialize CSP bottleneck layer with two convolutions with arguments ch_in, ch_out, number, shortcut, groups,
+#         expansion.
+#         """
+#         super().__init__()
+#
+#         self.c = c1
+#         # self.m = nn.ModuleList(
+#         #     Bottleneckt(c1 // 2 ** (1 + _), c1 // 2 ** (1 + _), shortcut, c1 // 2 ** (1 + _), k=((3, 3), (1, 1)), e=1.0)
+#         #     for _ in range(n))
+#         self.m = nn.ModuleList(
+#             Bottleneckt(c1-c1 // 2 ** (1 + _), c1-c1 // 2 ** (1 + _), shortcut, c1-c1 // 2 ** (1 + _), k=((3, 3), (1, 1)), e=1.0)
+#             for _ in range(n))
+#         if c1!=c2:
+#             self.cv2 = Conv(c1, c2, 1)  # optional act=FReLU(c2)
+#         else:
+#             self.cv2=nn.Identity()
+#
+#     def forward(self, x):
+#         """Forward pass through C2f layer."""
+#         # y = list(self.cv1(x).chunk(2, 1))
+#         y,x1=list(x.chunk(2, 1))
+#         y=self.m[0](y)
+#         for m in self.m[1:]:
+#             x0,x1 = list(x1.chunk(2, 1))
+#             y=m(torch.cat((y,x0),dim=1))
+#         return self.cv2(torch.cat((y,x1), 1))
+#
+#     def forward_split(self, x):
+#         """Forward pass using split() instead of chunk()."""
+#         y,x1=list(x.split((self.c // 2, self.c // 2), 1))
+#         y=self.m[0](y)
+#         for id,m in enumerate(self.m[1:]):
+#             x0,x1 = list(x1.split((self.c // 2 ** (2 + id), self.c // 2 ** (2 + id)), 1))
+#             y = m(torch.cat((y, x0), dim=1))
+#         return self.cv2(torch.cat((y, x1), 1))
+
+
 
 
 class C3(nn.Module):
@@ -335,6 +434,24 @@ class Bottleneck(nn.Module):
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, k[0], 1)
         self.cv2 = Conv(c_, c2, k[1], 1, g=g)
+        self.add = shortcut and c1 == c2
+
+    def forward(self, x):
+        """'forward()' applies the YOLO FPN to input data."""
+        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+
+class Bottleneckt(nn.Module):
+    """Standard bottleneck."""
+
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
+        """Initializes a bottleneck module with given input/output channels, shortcut option, group, kernels, and
+        expansion.
+        """
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+
+        self.cv1 = Conv(c1, c1, k[0], 1, g=g)
+        self.cv2 = Conv(c1, c2, k[1], 1)
         self.add = shortcut and c1 == c2
 
     def forward(self, x):
@@ -705,9 +822,13 @@ class RepVGGDW(torch.nn.Module):
         self.conv = Conv(ed, ed, 7, 1, 3, g=ed, act=False)
         self.conv1 = Conv(ed, ed, 3, 1, 1, g=ed, act=False)
         self.dim = ed
-        self.act = nn.SiLU()
+        # self.act = nn.SiLU()
+        self.act = nn.ReLU6()
+        self.fuse_=False
     
     def forward(self, x):
+        if self.fuse_:
+            return self.act(self.forward_fuse(x))
         return self.act(self.conv(x) + self.conv1(x))
     
     def forward_fuse(self, x):
@@ -715,6 +836,7 @@ class RepVGGDW(torch.nn.Module):
 
     @torch.no_grad()
     def fuse(self):
+        self.fuse_=True
         conv = fuse_conv_and_bn(self.conv.conv, self.conv.bn)
         conv1 = fuse_conv_and_bn(self.conv1.conv, self.conv1.bn)
         
@@ -767,6 +889,17 @@ class C2fCIB(C2f):
         super().__init__(c1, c2, n, shortcut, g, e)
         self.m = nn.ModuleList(CIB(self.c, self.c, shortcut, e=1.0, lk=lk) for _ in range(n))
 
+class C2fCIBt(C2ft):
+    """Faster Implementation of CSP Bottleneck with 2 convolutions."""
+
+    def __init__(self, c1, c2, n=1, shortcut=False, lk=False, g=1, e=0.5):
+        """Initialize CSP bottleneck layer with two convolutions with arguments ch_in, ch_out, number, shortcut, groups,
+        expansion.
+        """
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(CIB(c1 // 2 ** (1 + _), c1 // 2 ** (1 + _), shortcut, e=0.5, lk=lk) for _ in range(n))
+
+
 
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8,
@@ -817,11 +950,101 @@ class PSA(nn.Module):
         b = b + self.ffn(b)
         return self.cv2(torch.cat((a, b), 1))
 
+
+class PSAt(nn.Module):
+
+    def __init__(self, c1, c2, e=0.5):
+        super().__init__()
+        assert (c1 == c2)
+        self.c = int(c1 * e)
+        self.cv1 = nn.Identity()
+        self.cv2 = nn.Identity()
+
+        self.attn = RepVGGDW(self.c)
+        self.ffn = nn.Sequential(
+            Conv(self.c, int(self.c ), 1),
+            Conv(int(self.c ), self.c, 1, act=False)
+        )
+
+    def forward(self, x):
+        # a, b = self.cv1(x).split((self.c, self.c), dim=1)
+        a, b = self.cv1(x).chunk(2, dim=1)
+        b = b + self.attn(b)
+        b = b + self.ffn(b)
+        return self.cv2(torch.cat((a, b), 1))
+
 class SCDown(nn.Module):
     def __init__(self, c1, c2, k, s):
         super().__init__()
-        self.cv1 = Conv(c1, c2, 1, 1)
-        self.cv2 = Conv(c2, c2, k=k, s=s, g=c2, act=False)
+
+        self.cv1 = Conv(c1, c1, k=k, s=s, g=c1, act=False)
+        self.cv2 = Conv(c1, c2, 1, 1,act=False)
 
     def forward(self, x):
         return self.cv2(self.cv1(x))
+
+class SCUp(nn.Module):
+    def __init__(self, c1, c2, k, s):
+        super().__init__()
+        self.cv1 = Conv(c1, c2, 1, 1,act=False)
+        self.cv2 = nn.Upsample(scale_factor=2,mode='nearest')
+
+    def forward(self, x):
+        return self.cv2(self.cv1(x))
+
+import os
+class SpAMt(nn.Module):
+    input=None
+    output=None
+    def __init__(self, flag, sp,spc):
+        super(SpAMt, self).__init__()
+        self.flag = flag
+        self.separation_scale = spc
+        self.separation=sp
+
+    def forward(self, x):
+
+        if self.flag == 0:
+            if os.environ['YOLOV10_EXPORT'] == 'FRONT':
+                return x
+            elif os.environ['YOLOV10_EXPORT'] == 'POST':
+                SpAMt.input=x
+                bs, ch, h, w = x.shape
+                sp=self.separation
+                return torch.rand((1,3,2**sp*h,2**sp*w))
+            else:
+                return self.seperate(x)
+        elif self.flag == 1:
+            if os.environ['YOLOV10_EXPORT'] == 'FRONT':
+                SpAMt.output=x
+                bs,ch,h,w=x.shape
+                return torch.rand((1,ch,self.separation_scale*h,self.separation_scale*w))
+            elif os.environ['YOLOV10_EXPORT'] == 'POST':
+                return SpAMt.input
+            else:
+                return self.montage(x)
+        elif self.flag == 2:
+            if os.environ['YOLOV10_EXPORT'] == 'FRONT':
+                return SpAMt.output
+            elif os.environ['YOLOV10_EXPORT'] == 'POST':
+                return x
+            else:
+                return x
+        else:
+            return x
+
+    def seperate(self, x):
+        bs, ch, h, w = x.shape
+        x = x.view(bs, ch, self.separation_scale, h // self.separation_scale, self.separation_scale,
+                   w // self.separation_scale)
+        x = x.permute(0, 2, 4, 1, 3, 5)
+        x = x.reshape(bs * self.separation_scale ** 2, ch, h // self.separation_scale, w // self.separation_scale)
+        return x
+
+    def montage(self, x):
+        bs, ch, h, w = x.shape
+        x = x.view(bs // self.separation_scale ** 2, self.separation_scale, self.separation_scale, ch, h, w)
+        x = x.permute(0, 3, 1, 4, 2, 5)
+        x = x.reshape(bs // self.separation_scale ** 2, ch, self.separation_scale * h,
+                      self.separation_scale * w)
+        return x

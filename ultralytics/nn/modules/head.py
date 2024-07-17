@@ -65,7 +65,11 @@ class Detect(nn.Module):
             norm = self.strides / (self.stride[0] * grid_size)
             dbox = self.decode_bboxes(self.dfl(box) * norm, self.anchors.unsqueeze(0) * norm[:, :2])
         else:
-            dbox = self.decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides
+            if self.export:
+                b, _, a = box.shape
+                dbox=box.view(b, 4, self.reg_max, a).softmax(2).view(b,-1,a)
+            else:
+                dbox = self.decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides
 
         y = torch.cat((dbox, cls.sigmoid()), 1)
         return y if self.export else (y, x)
@@ -521,6 +525,47 @@ class v10Detect(Detect):
                 assert(self.max_det != -1)
                 boxes, scores, labels = ops.v10postprocess(one2one.permute(0, 2, 1), self.max_det, self.nc)
                 return torch.cat([boxes, scores.unsqueeze(-1), labels.unsqueeze(-1).to(boxes.dtype)], dim=-1)
+        else:
+            return {"one2many": one2many, "one2one": one2one}
+
+    def bias_init(self):
+        super().bias_init()
+        """Initialize Detect() biases, WARNING: requires stride availability."""
+        m = self  # self.model[-1]  # Detect() module
+        # cf = torch.bincount(torch.tensor(np.concatenate(dataset.labels, 0)[:, 0]).long(), minlength=nc) + 1
+        # ncf = math.log(0.6 / (m.nc - 0.999999)) if cf is None else torch.log(cf / cf.sum())  # nominal class frequency
+        for a, b, s in zip(m.one2one_cv2, m.one2one_cv3, m.stride):  # from
+            a[-1].bias.data[:] = 1.0  # box
+            b[-1].bias.data[: m.nc] = math.log(5 / m.nc / (640 / s) ** 2)  # cls (.01 objects, 80 classes, 640 img)
+
+
+class v10DetectTiny(Detect):
+    max_det = -1
+
+    def __init__(self, nc=80, ch=()):
+        c = ch[0]
+        super().__init__(nc, [c])
+        self.cv2 = nn.ModuleList(nn.Sequential(nn.Sequential(Conv(x, x, 3, g=x), Conv(x, x, 1)),
+                                               nn.Conv2d(x, 4 * self.reg_max, 1)) for i, x in enumerate([c]))
+        self.cv3 = nn.ModuleList(nn.Sequential(nn.Conv2d(x, self.nc, 1)) for i, x in enumerate([c]))
+
+        self.one2one_cv2 = copy.deepcopy(self.cv2)
+        self.one2one_cv3 = copy.deepcopy(self.cv3)
+
+
+
+    def forward(self, x):
+        # x = [self.conv(torch.cat((x[0], x[1], self.upsample(x[2])), 1))]
+        one2one = self.forward_feat([xi.detach() for xi in x], self.one2one_cv2, self.one2one_cv3)
+        if not self.export:
+            one2many = super().forward(x)
+
+        if not self.training:
+            one2one = self.inference(one2one)
+            if not self.export:
+                return {"one2many": one2many, "one2one": one2one}
+            else:
+                return one2one
         else:
             return {"one2many": one2many, "one2one": one2one}
 
