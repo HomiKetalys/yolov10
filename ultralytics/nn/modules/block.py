@@ -155,31 +155,6 @@ class SPP(nn.Module):
         return self.cv2(torch.cat([x] + [m(x) for m in self.m], 1))
 
 
-# class SPPF(nn.Module):
-#     """Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher."""
-#
-#     def __init__(self, c1, c2, k=5):
-#         """
-#         Initializes the SPPF layer with given input/output channels and kernel size.
-#
-#         This module is equivalent to SPP(k=(5, 9, 13)).
-#         """
-#         super().__init__()
-#         c_ = c1 // 2  # hidden channels
-#         # self.cv1 = Conv(c1, c_, 1, 1,act=False)
-#         self.cv2 = Conv(c_ * 4, c2, 1, 1,act=True)
-#         self.cv1=nn.Identity()
-#         # self.cv2=nn.Identity()
-#         self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
-#
-#     def forward(self, x):
-#         """Forward pass through Ghost Convolution block."""
-#         x = self.cv1(x)
-#         y1 = self.m(x)
-#         y2 = self.m(y1)
-#         return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
-#         # return x
-
 class SPPF(nn.Module):
     """Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher."""
 
@@ -190,9 +165,34 @@ class SPPF(nn.Module):
         This module is equivalent to SPP(k=(5, 9, 13)).
         """
         super().__init__()
-        self.m1 = nn.MaxPool2d(kernel_size=3, stride=1, padding=3 // 2)
-        self.m2 = nn.MaxPool2d(kernel_size=5, stride=1, padding=5 // 2)
-        self.m3 = nn.MaxPool2d(kernel_size=7, stride=1, padding=7 // 2)
+        c_ = c1 // 2  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1,act=False)
+        self.cv2 = Conv(c_ * 4, c2, 1, 1,act=True)
+        # self.cv1=nn.Identity()
+        # self.cv2=nn.Identity()
+        self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+
+    def forward(self, x):
+        """Forward pass through Ghost Convolution block."""
+        x = self.cv1(x)
+        y1 = self.m(x)
+        y2 = self.m(y1)
+        return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+        # return x
+
+class SPPFt(nn.Module):
+    """Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher."""
+
+    def __init__(self, c1, c2, k=5):
+        """
+        Initializes the SPPF layer with given input/output channels and kernel size.
+
+        This module is equivalent to SPP(k=(5, 9, 13)).
+        """
+        super().__init__()
+        self.m1 = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+        self.m2 = nn.MaxPool2d(kernel_size=2*k-1, stride=1, padding=(2*k-1) // 2)
+        self.m3 = nn.MaxPool2d(kernel_size=k+2*(k-1), stride=1, padding=(k+2*(k-1)) // 2)
 
     def forward(self, x):
         """Forward pass through Ghost Convolution block."""
@@ -271,7 +271,7 @@ class C2ft(nn.Module):
         self.cv2 = Conv(c1, c2, 1)  # optional act=FReLU(c2)
         self.c = c2
         self.m = nn.ModuleList(
-            Bottleneckt(c1 // 2 ** (1 + _), c1 // 2 ** (1 + _), shortcut, c1 // 2 ** (1 + _), k=((3, 3), (1, 1)), e=1.0)
+            Bottleneck(c1 // 2 ** (1 + _), c1 // 2 ** (1 + _), shortcut, c1 // 2 ** (1 + _), k=((1, 1), (3, 3)), e=1.0)
             for _ in range(n))
 
     def forward(self, x):
@@ -284,57 +284,6 @@ class C2ft(nn.Module):
             x = m(y_[1])
         y.append(x)
         return self.cv2(torch.cat(y, 1))
-
-    def forward_split(self, x):
-        """Forward pass using split() instead of chunk()."""
-        y = []
-        for id, m in enumerate(self.m):
-            y_ = list(x.split((self.c // 2 ** (1 + id), self.c // 2 ** (1 + id)), 1))
-            y.append(y_[0])
-            x = m(y_[1])
-        y.append(x)
-        return self.cv2(torch.cat(y, 1))
-
-# class C2ft0(nn.Module):
-#     """Faster Implementation of CSP Bottleneck with 2 convolutions."""
-#
-#     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
-#         """Initialize CSP bottleneck layer with two convolutions with arguments ch_in, ch_out, number, shortcut, groups,
-#         expansion.
-#         """
-#         super().__init__()
-#
-#         self.c = c1
-#         # self.m = nn.ModuleList(
-#         #     Bottleneckt(c1 // 2 ** (1 + _), c1 // 2 ** (1 + _), shortcut, c1 // 2 ** (1 + _), k=((3, 3), (1, 1)), e=1.0)
-#         #     for _ in range(n))
-#         self.m = nn.ModuleList(
-#             Bottleneckt(c1-c1 // 2 ** (1 + _), c1-c1 // 2 ** (1 + _), shortcut, c1-c1 // 2 ** (1 + _), k=((3, 3), (1, 1)), e=1.0)
-#             for _ in range(n))
-#         if c1!=c2:
-#             self.cv2 = Conv(c1, c2, 1)  # optional act=FReLU(c2)
-#         else:
-#             self.cv2=nn.Identity()
-#
-#     def forward(self, x):
-#         """Forward pass through C2f layer."""
-#         # y = list(self.cv1(x).chunk(2, 1))
-#         y,x1=list(x.chunk(2, 1))
-#         y=self.m[0](y)
-#         for m in self.m[1:]:
-#             x0,x1 = list(x1.chunk(2, 1))
-#             y=m(torch.cat((y,x0),dim=1))
-#         return self.cv2(torch.cat((y,x1), 1))
-#
-#     def forward_split(self, x):
-#         """Forward pass using split() instead of chunk()."""
-#         y,x1=list(x.split((self.c // 2, self.c // 2), 1))
-#         y=self.m[0](y)
-#         for id,m in enumerate(self.m[1:]):
-#             x0,x1 = list(x1.split((self.c // 2 ** (2 + id), self.c // 2 ** (2 + id)), 1))
-#             y = m(torch.cat((y, x0), dim=1))
-#         return self.cv2(torch.cat((y, x1), 1))
-
 
 
 
@@ -434,24 +383,6 @@ class Bottleneck(nn.Module):
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, k[0], 1)
         self.cv2 = Conv(c_, c2, k[1], 1, g=g)
-        self.add = shortcut and c1 == c2
-
-    def forward(self, x):
-        """'forward()' applies the YOLO FPN to input data."""
-        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
-
-class Bottleneckt(nn.Module):
-    """Standard bottleneck."""
-
-    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
-        """Initializes a bottleneck module with given input/output channels, shortcut option, group, kernels, and
-        expansion.
-        """
-        super().__init__()
-        c_ = int(c2 * e)  # hidden channels
-
-        self.cv1 = Conv(c1, c1, k[0], 1, g=g)
-        self.cv2 = Conv(c1, c2, k[1], 1)
         self.add = shortcut and c1 == c2
 
     def forward(self, x):
@@ -828,7 +759,7 @@ class RepVGGDW(torch.nn.Module):
     
     def forward(self, x):
         if self.fuse_:
-            return self.act(self.forward_fuse(x))
+            return self.forward_fuse(x)
         return self.act(self.conv(x) + self.conv1(x))
     
     def forward_fuse(self, x):
@@ -962,8 +893,8 @@ class PSAt(nn.Module):
 
         self.attn = RepVGGDW(self.c)
         self.ffn = nn.Sequential(
-            Conv(self.c, int(self.c ), 1),
-            Conv(int(self.c ), self.c, 1, act=False)
+            Conv(self.c, 2*self.c, 1),
+            Conv(2*self.c, self.c, 1, act=False)
         )
 
     def forward(self, x):
@@ -987,7 +918,7 @@ class SCUp(nn.Module):
     def __init__(self, c1, c2, k, s):
         super().__init__()
         self.cv1 = Conv(c1, c2, 1, 1,act=False)
-        self.cv2 = nn.Upsample(scale_factor=2,mode='nearest')
+        self.cv2 = nn.Upsample(scale_factor=s,mode='nearest')
 
     def forward(self, x):
         return self.cv2(self.cv1(x))
