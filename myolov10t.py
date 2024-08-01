@@ -6,8 +6,19 @@ import torch
 
 from common_utils.utils import tfOrtModelRuner
 from ultralytics.nn.modules.conv import Conv
-from ultralytics.nn.modules.block import SpAMt, SCDown, C2ft, SPPFt, PSAt, C2fCIBt, SCUp
+from ultralytics.nn.modules.block import SpAMt, C2ft, SPPFt, PSAt, C2fCIBt,SCUp,SCDown
 from torch import nn
+
+# class SCDown(nn.Module):
+#     def __init__(self, c1, c2, k, s):
+#         super().__init__()
+#
+#         self.cv1 = Conv(c1, c1, k=k, s=s, g=c1, act=False)
+#         self.cv2 = Conv(c1, c2, 1, 1,act=True)
+#
+#     def forward(self, x):
+#         return self.cv2(self.cv1(x))
+
 
 class v10DetectTiny(nn.Module):
     max_det = -1
@@ -48,11 +59,10 @@ class v10DetectTiny(nn.Module):
                         y_ = torch.cat((cv1[i](x[i]).sigmoid(),xy,wh, pcls), 1)
                     else:
                         y_ = torch.cat((cv1[i](x[i]).sigmoid(), xy, wh), 1)
-
                 else:
                     box=cv2[i](x[i])
-                    b, _, a = box.shape
-                    box=box.view(b, 4, self.reg_max, a).softmax(2).view(b,-1,a)
+                    b, _, h,w = box.shape
+                    box=box.view(b, 4, self.reg_max, h*w).softmax(2).view(b,-1,h,w)
                     if self.use_taa or pcls.shape[1]>1:
                         y_=torch.cat((cv1[i](x[i]).sigmoid(),box,pcls), 1)
                     else:
@@ -126,6 +136,7 @@ class YOLOv10t(nn.Module):
             self.stage_list[self.separation - 1].append(SpAMt(1, self.separation,self.separation_scale))
             self.spa = SpAMt(2, self.separation,self.separation_scale)
         else:
+            self.stage_list[0].insert(0, nn.Identity())
             self.spa = nn.Identity()
 
         self.spp = nn.Sequential(
